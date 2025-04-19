@@ -20,10 +20,6 @@ kotlin {
 dependencies {
     val libVersion: String by project
     compileOnly("com.github.brahmkshatriya:echo:$libVersion")
-
-    testImplementation("junit:junit:4.13.2")
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
-    testImplementation("com.github.brahmkshatriya:echo:$libVersion")
 }
 
 // Extension properties goto `gradle.properties` to set values
