@@ -31,14 +31,17 @@ import kotlin.io.encoding.ExperimentalEncodingApi
 
 class SoundCloudExtension : HomeFeedClient, ExtensionClient, LoginClient.WebView.Cookie {
 
-    override suspend fun onExtensionSelected() {}
+    private val session = SoundCloudSession.getInstance()
+    private val api = SoundCloudApi(session)
 
     override val settingItems: List<Setting> = emptyList()
 
-    private lateinit var setting: Settings
-
     override fun setSettings(settings: Settings) {
-        setting = settings
+        session.settings = settings
+    }
+
+    override suspend fun onExtensionSelected() {
+        session.settings?.let { setSettings(it) }
     }
 
     //<============= HomeTab =============>
@@ -176,7 +179,7 @@ class SoundCloudExtension : HomeFeedClient, ExtensionClient, LoginClient.WebView
             .takeIf { it!!.isNotBlank() }
             ?: throw IllegalStateException("No access_token in token response")
 
-        return listOf(makeUser(accessToken))
+        return listOf(api.makeUser(accessToken))
     }
 
     private fun getClientID(data: String): String {
@@ -236,18 +239,6 @@ class SoundCloudExtension : HomeFeedClient, ExtensionClient, LoginClient.WebView
 //Connection: keep-alive
 //Pragma: no-cache
 //Cache-Control: no-cache
-
-
-    private fun makeUser(token: String): User {
-        return User(
-            id = "",
-            name = "",
-            cover = "".toImageHolder(),
-            extras = mapOf(
-                "access_token" to token
-            )
-        )
-    }
 
     override suspend fun onSetLoginUser(user: User?) {}
 }
