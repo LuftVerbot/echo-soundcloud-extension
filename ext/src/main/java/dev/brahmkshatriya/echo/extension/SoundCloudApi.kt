@@ -73,49 +73,65 @@ class SoundCloudApi(private val session: SoundCloudSession) {
             add("Origin", "https://soundcloud.com")
             add("Cache-Control", "no-cache")
             add("Connection", "keep-alive")
+            add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:137.0) Gecko/20100101 Firefox/137.0")
         }.build()
     }
 
     suspend fun callApi(
         method: String
     ): String = withContext(Dispatchers.IO) {
-        val url = HttpUrl.Builder()
-            .scheme("https")
-            .host("api-v2.soundcloud.com")
-            .addPathSegments(method)
-            .addQueryParameter("client_id", clientId)
-            .build()
+        try {
+            val url = HttpUrl.Builder()
+                .scheme("https")
+                .host("api-v2.soundcloud.com")
+                .addPathSegments(method)
+                .addQueryParameter("client_id", clientId)
+                .build()
 
+            println("FUCK YOU $url")
 
-        val request = Request.Builder()
-            .url(url)
-            .apply {
-                post("".toRequestBody())
-                headers(getHeaders())
+            val request = Request.Builder()
+                .url(url)
+                .apply {
+                    if(method == "me") {
+                        get()
+                    } else {
+                        post("".toRequestBody())
+                    }
+                    headers(getHeaders())
+                }
+                .build()
+
+            client.newCall(request).await().use { response ->
+                val responseBody = response.body.string()
+                println("FUCK YOU $responseBody")
+                responseBody
             }
-            .build()
-
-        client.newCall(request).await().use { response ->
-            val responseBody = response.body.string()
-            responseBody
+        } catch (e: Exception) {
+            throw e
         }
     }
 
     //<============= Login =============>
 
     suspend fun makeUser(token: String): User {
-        val jsonData = callApi("me")
-        val jsonObject = json.decodeFromString<JsonObject>(jsonData)
-        val id = jsonObject["id"]?.jsonPrimitive?.content.orEmpty()
-        return User(
-            id = id,
-            name = jsonObject["username"]?.jsonPrimitive?.content.orEmpty(),
-            cover = jsonObject["avatar_url"]?.jsonPrimitive?.content.orEmpty().toImageHolder(),
-            extras = mapOf(
-                "accessToken" to token,
-                "userId" to id,
-                "clientId" to clientId
+        try {
+            val jsonData = callApi("me")
+            val jsonObject = json.decodeFromString<JsonObject>(jsonData)
+            val id = jsonObject["id"]?.jsonPrimitive?.content.orEmpty()
+            session.updateCredentials(userId = id)
+            return User(
+                id = id,
+                name = jsonObject["username"]?.jsonPrimitive?.content.orEmpty(),
+                cover = jsonObject["avatar_url"]?.jsonPrimitive?.content.orEmpty().toImageHolder(),
+                extras = mapOf(
+                    "accessToken" to token,
+                    "userId" to id,
+                    "clientId" to clientId
+                )
             )
-        )
+        } catch (e: Exception) {
+            throw e
+        }
     }
 }

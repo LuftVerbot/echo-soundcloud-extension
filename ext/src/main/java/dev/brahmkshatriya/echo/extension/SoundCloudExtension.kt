@@ -178,6 +178,7 @@ class SoundCloudExtension : HomeFeedClient, ExtensionClient, LoginClient.WebView
             ?.content
             .takeIf { it!!.isNotBlank() }
             ?: throw IllegalStateException("No access_token in token response")
+        session.updateCredentials(accessToken = accessToken, clientId = clientId)
 
         return listOf(api.makeUser(accessToken))
     }
