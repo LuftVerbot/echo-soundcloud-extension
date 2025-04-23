@@ -78,13 +78,13 @@ class SoundCloudApi(private val session: SoundCloudSession) {
     }
 
     suspend fun callApi(
-        method: String
+        path: String
     ): String = withContext(Dispatchers.IO) {
         try {
             val url = HttpUrl.Builder()
                 .scheme("https")
                 .host("api-v2.soundcloud.com")
-                .addPathSegments(method)
+                .addPathSegments(path)
                 .addQueryParameter("client_id", clientId)
                 .build()
 
@@ -93,7 +93,7 @@ class SoundCloudApi(private val session: SoundCloudSession) {
             val request = Request.Builder()
                 .url(url)
                 .apply {
-                    if(method == "me") {
+                    if(path == "me") {
                         get()
                     } else {
                         post("".toRequestBody())
@@ -134,4 +134,18 @@ class SoundCloudApi(private val session: SoundCloudSession) {
             throw e
         }
     }
+
+    //<============= Home =============>
+
+    suspend fun homePage(): JsonObject {
+        val jsonData = callApi("mixed-selections")
+        return json.decodeFromString<JsonObject>(jsonData)
+    }
+
+    suspend fun selections(id: String): JsonObject {
+        val path = id.substringAfter("selections:")
+        val jsonData = callApi("selections/$path")
+        return json.decodeFromString<JsonObject>(jsonData)
+    }
+
 }

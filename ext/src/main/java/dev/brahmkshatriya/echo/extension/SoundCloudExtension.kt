@@ -33,6 +33,7 @@ class SoundCloudExtension : HomeFeedClient, ExtensionClient, LoginClient.WebView
 
     private val session = SoundCloudSession.getInstance()
     private val api = SoundCloudApi(session)
+    private val parser = SoundCloudParser(session)
 
     override val settingItems: List<Setting> = emptyList()
 
@@ -46,7 +47,7 @@ class SoundCloudExtension : HomeFeedClient, ExtensionClient, LoginClient.WebView
 
     //<============= HomeTab =============>
 
-    private val sdHomeFeedClient = SDHomeFeedClient()
+    private val sdHomeFeedClient = SDHomeFeedClient(api, parser)
 
     override suspend fun getHomeTabs(): List<Tab> = listOf()
 
@@ -71,10 +72,8 @@ class SoundCloudExtension : HomeFeedClient, ExtensionClient, LoginClient.WebView
         )
 
     override val loginWebViewStopUrlRegex = "https://m\\.soundcloud\\.com/signin/callback.*".toRegex()
-    /*override val loginWebViewStopUrlRegex = Regex("""^https://m\.soundcloud\.com/signin/callback.*""")*/
 
     override val loginWebViewCookieUrlRegex = "https://api-auth\\.soundcloud\\.com/oauth/authorize\\?.*".toRegex()
-    /*override val loginWebViewCookieUrlRegex = Regex("""^https://api\-auth\.soundcloud\.com/oauth/authorize(?:\?.*)?$""")*/
 
     @OptIn(ExperimentalEncodingApi::class)
     override suspend fun onLoginWebviewStop(url: String, data: Map<String, String>): List<User> {
@@ -221,25 +220,25 @@ class SoundCloudExtension : HomeFeedClient, ExtensionClient, LoginClient.WebView
         throw IllegalStateException("Client ID could not be retrieved")
     }
 
-    /*https://api-v2.soundcloud.com/users/344645387?client_id=EjkRJG0BLNEZquRiPZYdNtJdyGtTuHdp&app_version=1744919743&app_locale=de*/
+    override suspend fun onSetLoginUser(user: User?) {
+        if (user != null) {
+            session.updateCredentials(
+                accessToken = user.extras["accessToken"] ?: "",
+                clientId = user.extras["userId"] ?: "",
+                userId = user.extras["clientId"] ?: ""
+            )
+        } else {
+            session.updateCredentials(
+                accessToken = "",
+                clientId = "",
+                userId = ""
+            )
+        }
+    }
 
-//    GET /users/344645387?client_id=EjkRJG0BLNEZquRiPZYdNtJdyGtTuHdp&app_version=1744919743&app_locale=de HTTP/1.1
-//    Host: api-v2.soundcloud.com
-//    User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:137.0) Gecko/20100101 Firefox/137.0
-//    Accept: application/json, text/javascript, */*; q=0.01
-//Accept-Language: de,en-US;q=0.7,en;q=0.3
-//Accept-Encoding: gzip, deflate, br, zstd
-//Referer: https://soundcloud.com/
-//Origin: https://soundcloud.com
-//DNT: 1
-//Sec-GPC: 1
-//Sec-Fetch-Dest: empty
-//Sec-Fetch-Mode: cors
-//Sec-Fetch-Site: same-site
-//Authorization: OAuth 2-302405-344645387-RbSKNDlFabNnMg
-//Connection: keep-alive
-//Pragma: no-cache
-//Cache-Control: no-cache
+    //<============= Utils =============>
 
-    override suspend fun onSetLoginUser(user: User?) {}
+    fun handleArlExpiration() {
+
+    }
 }
