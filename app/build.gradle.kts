@@ -1,5 +1,3 @@
-import java.io.ByteArrayOutputStream
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -9,6 +7,7 @@ dependencies {
     implementation(project(":ext"))
     val libVersion: String by project
     compileOnly("com.github.brahmkshatriya:echo:$libVersion")
+    compileOnly("org.jetbrains.kotlin:kotlin-stdlib:2.1.0")
 }
 
 val extType: String by project
@@ -28,13 +27,29 @@ val extUpdateUrl: String? by project
 val gitHash = execute("git", "rev-parse", "HEAD").take(7)
 val gitCount = execute("git", "rev-list", "--count", "HEAD").toInt()
 val verCode = gitCount
-val verName = gitHash
+val verName = "v$gitHash"
+
+val outputDir = file("${layout.buildDirectory.asFile.get()}/generated/proguard")
+val generatedProguard = file("${outputDir}/generated-rules.pro")
+
+tasks.register("generateProguardRules") {
+    doLast {
+        outputDir.mkdirs()
+        generatedProguard.writeText(
+            "-dontobfuscate\n-keep,allowoptimization class dev.brahmkshatriya.echo.extension.$extClass"
+        )
+    }
+}
+
+tasks.named("preBuild") {
+    dependsOn("generateProguardRules")
+}
 
 tasks.register("uninstall") {
-    exec {
-        isIgnoreExitValue = true
-        executable(android.adbExecutable)
-        args("shell", "pm", "uninstall", android.defaultConfig.applicationId!!)
+    android.run {
+        execute(
+            adbExecutable.absolutePath, "shell", "pm", "uninstall", defaultConfig.applicationId!!
+        )
     }
 }
 
@@ -50,7 +65,7 @@ android {
             put("type", "dev.brahmkshatriya.echo.${extType}")
             put("id", extId)
             put("class_path", "dev.brahmkshatriya.echo.extension.${extClass}")
-            put("version", "v$verName")
+            put("version", verName)
             put("version_code", verCode.toString())
             put("icon_url", extIconUrl ?: "")
             put("app_name", "Echo : $extName Extension")
@@ -68,7 +83,7 @@ android {
             isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
+                generatedProguard.absolutePath
             )
         }
     }
@@ -77,13 +92,18 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
+    kotlinOptions {
+        jvmTarget = JavaVersion.VERSION_17.toString()
+    }
 }
 
 fun execute(vararg command: String): String {
-    val outputStream = ByteArrayOutputStream()
-    project.exec {
-        commandLine(*command)
-        standardOutput = outputStream
-    }
-    return outputStream.toString().trim()
+    val processBuilder = ProcessBuilder(*command)
+    val hashCode = command.joinToString().hashCode().toString()
+    val output = File.createTempFile(hashCode, "")
+    processBuilder.redirectOutput(output)
+    val process = processBuilder.start()
+    process.waitFor()
+    return output.readText().dropLast(1)
 }
