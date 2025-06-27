@@ -28,7 +28,7 @@ class SoundCloudApi(private val session: SoundCloudSession) {
     private val credentials: SoundCloudCredentials
         get() = session.credentials
 
-    private val accessToken: String
+    val accessToken: String
         get() = credentials.accessToken
 
     private val clientId: String
@@ -58,7 +58,7 @@ class SoundCloudApi(private val session: SoundCloudSession) {
         }.build()
     }
 
-    private val client: OkHttpClient by lazy { createOkHttpClient() }
+    val client: OkHttpClient by lazy { createOkHttpClient() }
 
     private val staticHeaders: Headers by lazy {
         Headers.Builder().apply {
@@ -114,7 +114,7 @@ class SoundCloudApi(private val session: SoundCloudSession) {
     suspend fun makeUser(token: String = accessToken): User {
         try {
             val jsonData = callApi("me")
-            val jsonObject = json.decodeFromString<JsonObject>(jsonData)
+            val jsonObject = decodeJson(jsonData)
             val id = jsonObject["id"]?.jsonPrimitive?.content.orEmpty()
             session.updateCredentials(userId = id)
             return User(
@@ -144,7 +144,7 @@ class SoundCloudApi(private val session: SoundCloudSession) {
     suspend fun getPlaylist(id: String): JsonObject =
         decodeJson(callApi("playlists/$id"))
 
-    //<============= Playlist =============>
+    //<============= Track =============>
 
     suspend fun getTracks(ids: List<String>): JsonArray =
         json.decodeFromString(callApi("tracks", mapOf("ids" to ids.joinToString(","))))
