@@ -4,23 +4,23 @@ import dev.brahmkshatriya.echo.common.clients.ExtensionClient
 import dev.brahmkshatriya.echo.common.clients.HomeFeedClient
 import dev.brahmkshatriya.echo.common.clients.LoginClient
 import dev.brahmkshatriya.echo.common.clients.PlaylistClient
+import dev.brahmkshatriya.echo.common.clients.SearchFeedClient
 import dev.brahmkshatriya.echo.common.clients.TrackClient
 import dev.brahmkshatriya.echo.common.helpers.ContinuationCallback.Companion.await
-import dev.brahmkshatriya.echo.common.helpers.PagedData
 import dev.brahmkshatriya.echo.common.helpers.WebViewRequest
 import dev.brahmkshatriya.echo.common.models.Feed
+import dev.brahmkshatriya.echo.common.models.NetworkRequest
+import dev.brahmkshatriya.echo.common.models.NetworkRequest.Companion.toGetRequest
 import dev.brahmkshatriya.echo.common.models.Playlist
-import dev.brahmkshatriya.echo.common.models.Request.Companion.toRequest
-import dev.brahmkshatriya.echo.common.models.Request as EchoRequest
 import dev.brahmkshatriya.echo.common.models.Shelf
 import dev.brahmkshatriya.echo.common.models.Streamable
-import dev.brahmkshatriya.echo.common.models.Tab
 import dev.brahmkshatriya.echo.common.models.Track
 import dev.brahmkshatriya.echo.common.models.User
 import dev.brahmkshatriya.echo.common.settings.Setting
 import dev.brahmkshatriya.echo.common.settings.Settings
 import dev.brahmkshatriya.echo.extension.clients.SCHomeFeedClient
 import dev.brahmkshatriya.echo.extension.clients.SCPlaylistClient
+import dev.brahmkshatriya.echo.extension.clients.SCSearchFeedClient
 import dev.brahmkshatriya.echo.extension.clients.SCTrackClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -41,13 +41,14 @@ import java.security.MessageDigest
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
-class SoundCloudExtension : HomeFeedClient, PlaylistClient, TrackClient, ExtensionClient, LoginClient.WebView {
+class SoundCloudExtension : HomeFeedClient, PlaylistClient, TrackClient, SearchFeedClient,
+    ExtensionClient, LoginClient.WebView {
 
     private val session by lazy { SoundCloudSession.getInstance() }
     private val api by lazy { SoundCloudApi(session) }
     private val parser by lazy { SoundCloudParser(session) }
 
-    override val settingItems: List<Setting> = emptyList()
+    override suspend fun getSettingItems(): List<Setting> = emptyList()
 
     override fun setSettings(settings: Settings) {
         session.settings = settings
@@ -61,32 +62,36 @@ class SoundCloudExtension : HomeFeedClient, PlaylistClient, TrackClient, Extensi
 
     private val scHomeFeedClient by lazy { SCHomeFeedClient(api, parser) }
 
-    override suspend fun getHomeTabs(): List<Tab> = listOf()
-
-    override fun getHomeFeed(tab: Tab?): Feed = scHomeFeedClient.getHomeFeed()
+    override suspend fun loadHomeFeed(): Feed<Shelf> = scHomeFeedClient.loadHomeFeed()
 
     //<============= Playlist =============>
 
     private val scPlaylistClient by lazy { SCPlaylistClient(api, parser) }
 
-    override fun getShelves(playlist: Playlist): PagedData<Shelf> = scPlaylistClient.getShelves(playlist)
-
     override suspend fun loadPlaylist(playlist: Playlist): Playlist = scPlaylistClient.loadPlaylist(playlist)
 
-    override fun loadTracks(playlist: Playlist): PagedData<Track> = scPlaylistClient.loadTracks(playlist)
+    override suspend fun loadTracks(playlist: Playlist): Feed<Track> = scPlaylistClient.loadTracks(playlist)
+
+    override suspend fun loadFeed(playlist: Playlist): Feed<Shelf>? = scPlaylistClient.loadFeed()
 
     //<============= Track =============>
 
     private val scTrackClient by lazy { SCTrackClient(api) }
 
-    override fun getShelves(track: Track): PagedData<Shelf> = scTrackClient.getShelves(track)
+    override suspend fun loadFeed(track: Track): Feed<Shelf> = scTrackClient.loadFeed(track)
 
     override suspend fun loadStreamableMedia(
         streamable: Streamable,
         isDownload: Boolean
     ): Streamable.Media = scTrackClient.loadStreamableMedia(streamable, isDownload)
 
-    override suspend fun loadTrack(track: Track): Track = scTrackClient.loadTrack(track)
+    override suspend fun loadTrack(track: Track, isDownload: Boolean): Track = scTrackClient.loadTrack(track)
+
+    //<============= Search =============>
+
+    private val scSearchFeedClient by lazy { SCSearchFeedClient(api) }
+
+    override suspend fun loadSearchFeed(query: String): Feed<Shelf> = scSearchFeedClient.loadSearchFeed(query)
 
     //<============= Login =============>
 
@@ -99,7 +104,7 @@ class SoundCloudExtension : HomeFeedClient, PlaylistClient, TrackClient, Extensi
 
     @OptIn(ExperimentalEncodingApi::class)
     override val webViewRequest = object : WebViewRequest.Headers<List<User>> {
-        override suspend fun onStop(requests: List<EchoRequest>): List<User> {
+        override suspend fun onStop(requests: List<NetworkRequest>): List<User> {
             val loginUserAgent =
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 
@@ -216,7 +221,7 @@ class SoundCloudExtension : HomeFeedClient, PlaylistClient, TrackClient, Extensi
             return listOf(api.makeUser(accessToken))
         }
 
-        override val initialUrl = "https://m.soundcloud.com/signin".toRequest(
+        override val initialUrl = "https://m.soundcloud.com/signin".toGetRequest(
             mapOf(
                 Pair(
                     "User-Agent",
@@ -265,7 +270,7 @@ class SoundCloudExtension : HomeFeedClient, PlaylistClient, TrackClient, Extensi
         throw IllegalStateException("Client ID could not be retrieved")
     }
 
-    override suspend fun onSetLoginUser(user: User?) {
+    override fun setLoginUser(user: User?) {
         if (user != null) {
             session.updateCredentials(
                 accessToken = user.extras["accessToken"] ?: "",

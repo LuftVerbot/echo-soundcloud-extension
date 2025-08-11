@@ -13,7 +13,7 @@ import kotlinx.serialization.json.jsonPrimitive
 
 class SCHomeFeedClient(private val api: SoundCloudApi, private val parser: SoundCloudParser) {
 
-    fun getHomeFeed(): Feed = PagedData.Single {
+    fun loadHomeFeed(): Feed<Shelf> = PagedData.Single {
         val homeCollection = api.homePage()["collection"]?.jsonArray ?: JsonArray(emptyList())
 
         homeCollection.mapNotNull { selection ->

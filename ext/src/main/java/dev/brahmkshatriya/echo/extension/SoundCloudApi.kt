@@ -15,14 +15,15 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
-import okhttp3.ResponseBody.Companion.toResponseBody
-import java.util.zip.GZIPInputStream
 
 class SoundCloudApi(private val session: SoundCloudSession) {
 
-    private val json = Json {
-        isLenient = true
-        ignoreUnknownKeys = true
+    private val json by lazy {
+        Json {
+            isLenient = true
+            ignoreUnknownKeys = true
+            useArrayPolymorphism = true
+        }
     }
 
     private val credentials: SoundCloudCredentials
@@ -38,24 +39,7 @@ class SoundCloudApi(private val session: SoundCloudSession) {
         get() = credentials.userId
 
     private fun createOkHttpClient(): OkHttpClient {
-        return OkHttpClient.Builder().apply {
-            addInterceptor { chain ->
-                val response = chain.proceed(chain.request())
-                if (response.header("Content-Encoding") == "gzip") {
-                    val decompressedBytes = GZIPInputStream(response.body.byteStream()).use {
-                        it.readBytes()
-                    }
-                    val contentType = response.body.contentType()
-                    val newBody = decompressedBytes.toResponseBody(contentType)
-                    response.newBuilder()
-                        .removeHeader("Content-Encoding")
-                        .body(newBody)
-                        .build()
-                } else {
-                    response
-                }
-            }
-        }.build()
+        return OkHttpClient.Builder().build()
     }
 
     val client: OkHttpClient by lazy { createOkHttpClient() }
@@ -64,7 +48,6 @@ class SoundCloudApi(private val session: SoundCloudSession) {
         Headers.Builder().apply {
             add("Accept", "application/json, text/javascript, */*; q=0.01")
             add("Accept-Language", "de,en-US;q=0.7,en;q=0.3")
-            add("Accept-Encoding", "gzip")
             add("Referer", "https://soundcloud.com/")
             add("Origin", "https://soundcloud.com")
             add("Cache-Control", "no-cache")
@@ -148,6 +131,11 @@ class SoundCloudApi(private val session: SoundCloudSession) {
 
     suspend fun getTracks(ids: List<String>): JsonArray =
         json.decodeFromString(callApi("tracks", mapOf("ids" to ids.joinToString(","))))
+
+    //<============= Search =============>
+
+    suspend fun search(query: String, path: String): JsonObject =
+        decodeJson(callApi("search/$path", mapOf("q" to query)))
 
     //<============= Util =============>
 

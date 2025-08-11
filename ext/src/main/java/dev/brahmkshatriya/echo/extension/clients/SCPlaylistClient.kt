@@ -1,6 +1,8 @@
 package dev.brahmkshatriya.echo.extension.clients
 
 import dev.brahmkshatriya.echo.common.helpers.PagedData
+import dev.brahmkshatriya.echo.common.models.Feed
+import dev.brahmkshatriya.echo.common.models.Feed.Companion.toFeed
 import dev.brahmkshatriya.echo.common.models.Playlist
 import dev.brahmkshatriya.echo.common.models.Shelf
 import dev.brahmkshatriya.echo.common.models.Track
@@ -13,16 +15,12 @@ import kotlinx.serialization.json.jsonPrimitive
 
 class SCPlaylistClient(private val api: SoundCloudApi, private val parser: SoundCloudParser) {
 
-    fun getShelves(playlist: Playlist): PagedData.Single<Shelf> = PagedData.Single {
-        emptyList()
-    }
-
     suspend fun loadPlaylist(playlist: Playlist): Playlist {
         val jsonObject = api.getPlaylist(playlist.id)
         return parser.run { jsonObject.toPlaylist() }
     }
 
-    fun loadTracks(playlist: Playlist): PagedData<Track> = PagedData.Single {
+    fun loadTracks(playlist: Playlist): Feed<Track> = PagedData.Single {
         val jsonObject = api.getPlaylist(playlist.id)
         val tracksPlaylistArray = jsonObject["tracks"]?.jsonArray ?: JsonArray(emptyList())
         val trackIds = tracksPlaylistArray.map { track ->
@@ -32,5 +30,7 @@ class SCPlaylistClient(private val api: SoundCloudApi, private val parser: Sound
         trackArray.map { track ->
             parser.run { track.jsonObject.toTrack() }
         }
-    }
+    }.toFeed()
+
+    fun loadFeed(): Feed<Shelf>? = null
 }

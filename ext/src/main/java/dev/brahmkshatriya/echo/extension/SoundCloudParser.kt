@@ -3,10 +3,8 @@ package dev.brahmkshatriya.echo.extension
 import dev.brahmkshatriya.echo.common.models.EchoMediaItem
 import dev.brahmkshatriya.echo.common.models.ImageHolder.Companion.toImageHolder
 import dev.brahmkshatriya.echo.common.models.Playlist
-import dev.brahmkshatriya.echo.common.models.Request.Companion.toRequest
 import dev.brahmkshatriya.echo.common.models.Shelf
 import dev.brahmkshatriya.echo.common.models.Streamable
-import dev.brahmkshatriya.echo.common.models.Streamable.Media.Companion.toMedia
 import dev.brahmkshatriya.echo.common.models.Track
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -29,6 +27,7 @@ class SoundCloudParser(private val session: SoundCloudSession) {
         val list = itemsArray.mapNotNull { it.jsonObject.toEchoMediaItem() }
         return if(list.isNotEmpty()) {
             Shelf.Lists.Items(
+                id = name,
                 title = name,
                 list = list
             )
@@ -40,8 +39,8 @@ class SoundCloudParser(private val session: SoundCloudSession) {
     private fun JsonObject.toEchoMediaItem(): EchoMediaItem? {
         return jsonObject["kind"]?.jsonPrimitive?.content?.let { kind ->
             when {
-                "track" in kind -> EchoMediaItem.TrackItem(toTrack())
-                "system-playlist" in kind || "playlist" in kind -> EchoMediaItem.Lists.PlaylistItem(toPlaylist())
+                "track" in kind -> toTrack()
+                "system-playlist" in kind || "playlist" in kind -> toPlaylist()
                 else -> null
             }
         }
@@ -54,7 +53,7 @@ class SoundCloudParser(private val session: SoundCloudSession) {
             cover = jsonObject["artwork_url"]?.jsonPrimitive?.content?.replace("large", "t500x500")?.toImageHolder(),
             isEditable = true,
             description = jsonObject["description"]?.jsonPrimitive?.content,
-            tracks = jsonObject["track_count"]?.jsonPrimitive?.int
+            trackCount = jsonObject["track_count"]?.jsonPrimitive?.int?.toLong()
         )
     }
 
