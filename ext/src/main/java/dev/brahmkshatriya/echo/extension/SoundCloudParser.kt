@@ -1,5 +1,6 @@
 package dev.brahmkshatriya.echo.extension
 
+import dev.brahmkshatriya.echo.common.models.Album
 import dev.brahmkshatriya.echo.common.models.EchoMediaItem
 import dev.brahmkshatriya.echo.common.models.ImageHolder.Companion.toImageHolder
 import dev.brahmkshatriya.echo.common.models.Playlist
@@ -23,7 +24,7 @@ class SoundCloudParser(private val session: SoundCloudSession) {
         get() = credentials.clientId
 
     fun JsonElement.toShelfItemsList(name: String = "Unknown"): Shelf? {
-        val itemsArray = jsonObject["items"]?.jsonObject?.get("collection")?.jsonArray ?: return null
+        val itemsArray = jsonObject["items"]?.jsonObject?.get("collection")?.jsonArray ?: jsonObject["collection"]?.jsonArray ?: return null
         val list = itemsArray.mapNotNull { it.jsonObject.toEchoMediaItem() }
         return if(list.isNotEmpty()) {
             Shelf.Lists.Items(
@@ -36,13 +37,14 @@ class SoundCloudParser(private val session: SoundCloudSession) {
         }
     }
 
-    private fun JsonObject.toEchoMediaItem(): EchoMediaItem? {
-        return jsonObject["kind"]?.jsonPrimitive?.content?.let { kind ->
-            when {
-                "track" in kind -> toTrack()
-                "system-playlist" in kind || "playlist" in kind -> toPlaylist()
-                else -> null
-            }
+    fun JsonObject.toEchoMediaItem(): EchoMediaItem? {
+        val kind = jsonObject["kind"]?.jsonPrimitive?.content.orEmpty()
+        val setType = jsonObject["set_type"]?.jsonPrimitive?.content.orEmpty()
+        return when {
+            "track" in kind -> toTrack()
+            "album" in setType -> toAlbum()
+            "system-playlist" in kind || "playlist" in kind -> toPlaylist()
+            else -> null
         }
     }
 
@@ -57,17 +59,27 @@ class SoundCloudParser(private val session: SoundCloudSession) {
         )
     }
 
+    fun JsonObject.toAlbum(): Album {
+        return Album(
+            id = jsonObject["id"]?.jsonPrimitive?.content.orEmpty(),
+            title = jsonObject["title"]?.jsonPrimitive?.content.orEmpty(),
+            cover = jsonObject["artwork_url"]?.jsonPrimitive?.content?.replace("large", "t500x500")?.toImageHolder(),
+            description = jsonObject["description"]?.jsonPrimitive?.content,
+            trackCount = jsonObject["track_count"]?.jsonPrimitive?.int?.toLong()
+        )
+    }
+
     fun JsonObject.toTrack(): Track {
         val mediaArray = jsonObject["media"]?.jsonObject?.get("transcodings")?.jsonArray
+        val trackAuth = jsonObject["track_authorization"]?.jsonPrimitive?.content
         val mediaList = mediaArray?.mapNotNull {
-            val trackAuth = jsonObject["track_authorization"]?.jsonPrimitive?.content
             val url = it.jsonObject["url"]?.jsonPrimitive?.content
             Streamable(
                 id = "$url?client_id=$clientId&track_authorization=$trackAuth",
                 quality = 0,
                 type = Streamable.MediaType.Server
             )
-        } as List<Streamable>
+        } ?: emptyList()
         return Track(
             id = jsonObject["id"]?.jsonPrimitive?.content.orEmpty(),
             title = jsonObject["title"]?.jsonPrimitive?.content.orEmpty(),

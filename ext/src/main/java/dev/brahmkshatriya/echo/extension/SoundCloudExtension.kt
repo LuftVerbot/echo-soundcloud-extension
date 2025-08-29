@@ -86,7 +86,7 @@ class SoundCloudExtension : HomeFeedClient, PlaylistClient, TrackClient, SearchF
 
     //<============= Search =============>
 
-    private val scSearchFeedClient by lazy { SCSearchFeedClient(api) }
+    private val scSearchFeedClient by lazy { SCSearchFeedClient(api, parser) }
 
     override suspend fun loadSearchFeed(query: String): Feed<Shelf> = scSearchFeedClient.loadSearchFeed(query)
 
@@ -112,7 +112,9 @@ class SoundCloudExtension : HomeFeedClient, PlaylistClient, TrackClient, SearchF
 
             val clientId = getClientID(cookie)
 
-            fun b64url(b: ByteArray) = Base64.UrlSafe.encode(b, 0, b.size)
+            fun b64url(b: ByteArray) = Base64.UrlSafe
+                .withPadding(Base64.PaddingOption.ABSENT)
+                .encode(b, 0, b.size)
             fun pkce(): Pair<String, String> {
                 val rnd = ByteArray(32).also { SecureRandom().nextBytes(it) }
                 val verifier = b64url(rnd)
@@ -126,15 +128,6 @@ class SoundCloudExtension : HomeFeedClient, PlaylistClient, TrackClient, SearchF
             val (codeVerifier, codeChallenge) = pkce()
             val state =
                 b64url("""{"client_id":"$clientId","nonce":"${UUID.randomUUID()}"}""".toByteArray())
-
-            /*val authBody = buildJsonObject {
-                put("client_id", clientId)
-                put("redirect_uri", "https://soundcloud.com/signin/callback")
-                put("response_type", "code")
-                put("code_challenge", codeChallenge)
-                put("code_challenge_method", "S256")
-                put("state", state)
-            }*/
 
             val authBody = """
             {"client_id":"$clientId","redirect_uri":"https://soundcloud.com/signin/callback",
@@ -183,8 +176,6 @@ class SoundCloudExtension : HomeFeedClient, PlaylistClient, TrackClient, SearchF
                 ?: error("No access_token in token response")
 
             session.updateCredentials(accessToken = accessToken, clientId = clientId)
-
-            println("FUCK YOU $accessToken")
 
             return listOf(api.makeUser(accessToken))
         }

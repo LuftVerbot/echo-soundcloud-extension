@@ -26,7 +26,6 @@ class SCTrackClient(private val api: SoundCloudApi) {
         val body = response.body.string()
         val jsonObject = api.decodeJson(body)
         val url = jsonObject["url"]?.jsonPrimitive?.content.orEmpty()
-        println("FUCK YOU $url")
         return Streamable.Source.Http(
             request = url.toGetRequest(),
             quality = streamable.quality,
