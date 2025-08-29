@@ -27,19 +27,16 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import okhttp3.Cookie
-import okhttp3.CookieJar
 import okhttp3.FormBody
-import okhttp3.HttpUrl
-import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.security.MessageDigest
+import java.security.SecureRandom
+import java.util.UUID
 import kotlin.io.encoding.Base64
-import kotlin.io.encoding.ExperimentalEncodingApi
 
 class SoundCloudExtension : HomeFeedClient, PlaylistClient, TrackClient, SearchFeedClient,
     ExtensionClient, LoginClient.WebView {
@@ -102,89 +99,64 @@ class SoundCloudExtension : HomeFeedClient, PlaylistClient, TrackClient, SearchF
         return user
     }
 
-    @OptIn(ExperimentalEncodingApi::class)
     override val webViewRequest = object : WebViewRequest.Headers<List<User>> {
         override suspend fun onStop(requests: List<NetworkRequest>): List<User> {
-            val loginUserAgent =
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
-
             var cookie = ""
             requests.forEach {
                 if (it.url.contains("oauth/authorize")) {
-                    if(it.headers["Cookie"]?.contains("_soundcloud_session") == true) {
-                        cookie = it.headers["Cookie"].orEmpty()
+                    if(it.headers["cookie"]?.contains("_soundcloud_session") == true) {
+                        cookie = it.headers["cookie"].orEmpty()
                     }
                 }
             }
 
             val clientId = getClientID(cookie)
 
-            val codeVerifier = RandomStringUtils.randomAlphanumeric(64)
-            val codeChallenge = MessageDigest
-                .getInstance("SHA-256")
-                .digest(codeVerifier.toByteArray(Charsets.UTF_8))
-                .let {
-                    Base64.UrlSafe.encode(it, 0, it.size)
-                }.trimEnd('=')
-
-            val nonce = RandomStringUtils.randomAlphanumeric(64)
-            val stateJson = """{"client_id":"$clientId","nonce":"$nonce"}"""
-            val bytes = stateJson.toByteArray(Charsets.UTF_8)
-            val rawState = Base64.UrlSafe.encode(bytes, 0, bytes.size)
-            val state = rawState.trimEnd('=')
-
-            val cookieJar = object : CookieJar {
-                private val store = mutableMapOf<String, List<Cookie>>()
-                override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
-                    store[url.host] = cookies
-                }
-
-                override fun loadForRequest(url: HttpUrl) = store[url.host] ?: emptyList()
+            fun b64url(b: ByteArray) = Base64.UrlSafe.encode(b, 0, b.size)
+            fun pkce(): Pair<String, String> {
+                val rnd = ByteArray(32).also { SecureRandom().nextBytes(it) }
+                val verifier = b64url(rnd)
+                val challenge = b64url(
+                    MessageDigest.getInstance("SHA-256")
+                        .digest(verifier.toByteArray(Charsets.UTF_8))
+                )
+                return verifier to challenge
             }
 
-            "https://soundcloud.com"
-                .toHttpUrl()
-                .let { baseUrl ->
-                    cookie.split(';')
-                        .mapNotNull { Cookie.parse(baseUrl, it.trim()) }
-                        .takeIf { it.isNotEmpty() }
-                        ?.let { cookieJar.saveFromResponse(baseUrl, it) }
-                }
+            val (codeVerifier, codeChallenge) = pkce()
+            val state =
+                b64url("""{"client_id":"$clientId","nonce":"${UUID.randomUUID()}"}""".toByteArray())
 
-            val clientWithJar = client.newBuilder()
-                .cookieJar(cookieJar)
-                .build()
+            /*val authBody = buildJsonObject {
+                put("client_id", clientId)
+                put("redirect_uri", "https://soundcloud.com/signin/callback")
+                put("response_type", "code")
+                put("code_challenge", codeChallenge)
+                put("code_challenge_method", "S256")
+                put("state", state)
+            }*/
 
             val authBody = """
-      {
-        "client_id":"$clientId",
-        "redirect_uri":"https://soundcloud.com/signin/callback",
-        "response_type":"code",
-        "code_challenge":"$codeChallenge",
-        "code_challenge_method":"S256",
-        "state":"$state"
-      }
-    """.trimIndent()
+            {"client_id":"$clientId","redirect_uri":"https://soundcloud.com/signin/callback",
+             "response_type":"code","code_challenge":"$codeChallenge","code_challenge_method":"S256",
+             "state":"$state"}
+            """.trimIndent()
+
             val authReq = Request.Builder()
                 .url("https://api-auth.soundcloud.com/oauth/authorize?client_id=$clientId")
                 .post(authBody.toRequestBody("application/json; charset=UTF-8".toMediaType()))
                 .addHeader("Cookie", cookie)
                 .build()
 
-            val authResponseJson = clientWithJar.newCall(authReq).await().use { resp ->
-                if (!resp.isSuccessful) throw IllegalStateException("Auth failed: $resp")
-                resp.body.string()
+            val authJson = client.newCall(authReq).await().use { r ->
+                check(r.isSuccessful) { "Auth failed: $r" }; r.body.string()
             }
 
-            val redirectUri = Json.parseToJsonElement(authResponseJson)
-                .jsonObject["redirect_uri"]
-                ?.jsonPrimitive
-                ?.content
-                .takeIf { it!!.isNotBlank() }
-                ?: throw IllegalStateException("No redirect_uri in auth response")
-            val code = redirectUri.toHttpUrlOrNull()
-                ?.queryParameter("code")
-                ?: throw IllegalStateException("No code in redirect_uri: $redirectUri")
+            val redirectUri = Json.parseToJsonElement(authJson).jsonObject["redirect_uri"]
+                ?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+                ?: error("No redirect_uri in auth response")
+            val code = redirectUri.toHttpUrlOrNull()?.queryParameter("code")
+                ?: error("No 'code' in redirect_uri")
 
             val tokenForm = FormBody.Builder()
                 .add("grant_type", "authorization_code")
@@ -193,27 +165,23 @@ class SoundCloudExtension : HomeFeedClient, PlaylistClient, TrackClient, SearchF
                 .add("code_verifier", codeVerifier)
                 .add("redirect_uri", "https://soundcloud.com/signin/callback")
                 .build()
-            val tokenUrl = "https://secure.soundcloud.com/oauth/token" +
-                    "?grant_type=authorization_code&client_id=$clientId"
             val tokenReq = Request.Builder()
-                .url(tokenUrl)
+                .url("https://secure.soundcloud.com/oauth/token?grant_type=authorization_code&client_id=$clientId")
                 .post(tokenForm)
-                .addHeader("User-Agent", loginUserAgent)
+                .addHeader(
+                    "User-Agent",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+                )
                 .addHeader("Accept", "application/json")
                 .build()
 
-            val tokenResponseJson = withContext(Dispatchers.IO) {
-                clientWithJar.newCall(tokenReq).execute().use { resp ->
-                    if (!resp.isSuccessful) throw IllegalStateException("Token exchange failed: $resp")
-                    resp.body.string()
-                }
+            val tokenJson = client.newCall(tokenReq).await().use { r ->
+                check(r.isSuccessful) { "Token exchange failed: $r" }; r.body.string()
             }
-            val accessToken = Json.parseToJsonElement(tokenResponseJson)
-                .jsonObject["access_token"]
-                ?.jsonPrimitive
-                ?.content
-                .takeIf { it!!.isNotBlank() }
-                ?: throw IllegalStateException("No access_token in token response")
+            val accessToken = Json.parseToJsonElement(tokenJson).jsonObject["access_token"]
+                ?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+                ?: error("No access_token in token response")
+
             session.updateCredentials(accessToken = accessToken, clientId = clientId)
 
             println("FUCK YOU $accessToken")
@@ -222,52 +190,29 @@ class SoundCloudExtension : HomeFeedClient, PlaylistClient, TrackClient, SearchF
         }
 
         override val initialUrl = "https://m.soundcloud.com/signin".toGetRequest(
-            mapOf(
-                Pair(
-                    "User-Agent",
-                    "Mozilla/5.0 (Linux; Android 14; sdk_gphone64_x86_64 Build/UE1A.230829.050; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/113.0.5672.136 Mobile Safari/537.36"
-                )
-            )
+            mapOf("User-Agent" to "Mozilla/5.0 (Linux; Android 14; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/113.0.5672.136 Mobile Safari/537.36")
         )
         override val interceptUrlRegex = "https://api-auth\\.soundcloud\\.com/oauth/authorize\\?.*".toRegex()
-
         override val stopUrlRegex = "https://m\\.soundcloud\\.com/signin/callback.*".toRegex()
     }
 
-    private suspend fun getClientID(data: String): String = withContext(Dispatchers.IO) {
-        val mainRequest = Request.Builder().url("https://soundcloud.com/").addHeader("Cookie", data).addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36").build()
-        val mainResponse = client.newCall(mainRequest).await()
-        val mainHtml = mainResponse.body.string()
-
-        val scriptRegex = Regex("<script[^\">]+?src=\"([^\"]+?sndcdn.com[^\"]+?)\"")
-
-        for (match in scriptRegex.findAll(mainHtml)) {
-            val scriptUrl = match.groupValues[1]
-
-            val request = Request.Builder().url(scriptUrl)
-                .addHeader(
-                    "User-Agent",
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
-                )
+    private suspend fun getClientID(cookie: String): String = withContext(Dispatchers.IO) {
+        val html = client.newCall(
+            Request.Builder()
+                .url("https://soundcloud.com/")
+                .addHeader("Cookie", cookie)
+                .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
                 .build()
+        ).await().body.string()
 
-            val result2 = client.newCall(request).await().body.string()
+        val scriptSrc = Regex("<script[^>]+src=\"([^\"]+?sndcdn.com[^\"]+)\"")
+            .findAll(html).map { it.groupValues[1] }
 
-            if (result2.isEmpty()) {
-                println("Client id not found in '$scriptUrl'")
-            } else {
-                val clientIdRegex = Regex("client_id\\s*?:\\s*?\"(\\w{32})\"")
-                val clientIdMatch = clientIdRegex.find(result2)
-                if (clientIdMatch == null) {
-                    println("Client id not found in '$scriptUrl'")
-                } else {
-                    val clientId = clientIdMatch.groupValues[1]
-                    println("Client id refreshed from '$scriptUrl': $clientId")
-                    return@withContext clientId
-                }
-            }
+        scriptSrc.forEach { jsUrl ->
+            val js = client.newCall(Request.Builder().url(jsUrl).build()).await().body.string()
+            Regex("client_id\\s*:\\s*\"(\\w{32})\"").find(js)?.groupValues?.get(1)?.let { return@withContext it }
         }
-        throw IllegalStateException("Client ID could not be retrieved")
+        error("Client ID could not be retrieved")
     }
 
     override fun setLoginUser(user: User?) {
