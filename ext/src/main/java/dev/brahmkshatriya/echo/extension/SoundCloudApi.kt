@@ -38,12 +38,6 @@ class SoundCloudApi(private val session: SoundCloudSession) {
     private val userId: String
         get() = credentials.userId
 
-    private fun createOkHttpClient(): OkHttpClient {
-        return OkHttpClient.Builder().build()
-    }
-
-    val client: OkHttpClient by lazy { createOkHttpClient() }
-
     private val staticHeaders: Headers by lazy {
         Headers.Builder().apply {
             add("Accept", "application/json, text/javascript, */*; q=0.01")
@@ -137,6 +131,11 @@ class SoundCloudApi(private val session: SoundCloudSession) {
     suspend fun search(query: String, path: String): JsonObject =
         decodeJson(callApi("search/$path", mapOf("q" to query)))
 
+    //<============= Library =============>
+
+    suspend fun getLibrary(path: String): JsonObject =
+        decodeJson(callApi("me/library/$path"))
+
     //<============= Util =============>
 
     suspend fun decodeJson(raw: String): JsonObject = withContext(Dispatchers.Default) {
@@ -145,5 +144,9 @@ class SoundCloudApi(private val session: SoundCloudSession) {
 
     private fun buildParams(vararg pairs: Pair<String, String?>): Map<String, String> =
         pairs.mapNotNull { (k, v) -> v?.let { k to it } }.toMap()
+
+    companion object {
+        val client: OkHttpClient = OkHttpClient()
+    }
 
 }

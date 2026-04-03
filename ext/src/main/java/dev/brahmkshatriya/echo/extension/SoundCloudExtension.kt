@@ -4,6 +4,7 @@ import dev.brahmkshatriya.echo.common.clients.ExtensionClient
 import dev.brahmkshatriya.echo.common.clients.HomeFeedClient
 import dev.brahmkshatriya.echo.common.clients.LoginClient
 import dev.brahmkshatriya.echo.common.clients.PlaylistClient
+import dev.brahmkshatriya.echo.common.clients.QuickSearchClient
 import dev.brahmkshatriya.echo.common.clients.SearchFeedClient
 import dev.brahmkshatriya.echo.common.clients.TrackClient
 import dev.brahmkshatriya.echo.common.helpers.ContinuationCallback.Companion.await
@@ -12,12 +13,14 @@ import dev.brahmkshatriya.echo.common.models.Feed
 import dev.brahmkshatriya.echo.common.models.NetworkRequest
 import dev.brahmkshatriya.echo.common.models.NetworkRequest.Companion.toGetRequest
 import dev.brahmkshatriya.echo.common.models.Playlist
+import dev.brahmkshatriya.echo.common.models.QuickSearchItem
 import dev.brahmkshatriya.echo.common.models.Shelf
 import dev.brahmkshatriya.echo.common.models.Streamable
 import dev.brahmkshatriya.echo.common.models.Track
 import dev.brahmkshatriya.echo.common.models.User
 import dev.brahmkshatriya.echo.common.settings.Setting
 import dev.brahmkshatriya.echo.common.settings.Settings
+import dev.brahmkshatriya.echo.extension.SoundCloudApi.Companion.client
 import dev.brahmkshatriya.echo.extension.clients.SCHomeFeedClient
 import dev.brahmkshatriya.echo.extension.clients.SCPlaylistClient
 import dev.brahmkshatriya.echo.extension.clients.SCSearchFeedClient
@@ -25,12 +28,12 @@ import dev.brahmkshatriya.echo.extension.clients.SCTrackClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.security.MessageDigest
@@ -39,7 +42,7 @@ import java.util.UUID
 import kotlin.io.encoding.Base64
 
 class SoundCloudExtension : HomeFeedClient, PlaylistClient, TrackClient, SearchFeedClient,
-    ExtensionClient, LoginClient.WebView {
+    QuickSearchClient, ExtensionClient, LoginClient.WebView {
 
     private val session by lazy { SoundCloudSession.getInstance() }
     private val api by lazy { SoundCloudApi(session) }
@@ -90,9 +93,22 @@ class SoundCloudExtension : HomeFeedClient, PlaylistClient, TrackClient, SearchF
 
     override suspend fun loadSearchFeed(query: String): Feed<Shelf> = scSearchFeedClient.loadSearchFeed(query)
 
-    //<============= Login =============>
+    override suspend fun quickSearch(query: String): List<QuickSearchItem> {
+        val queryObj = api.search(query, "queries")
+        val collArray = queryObj["collection"]?.jsonArray
+        return collArray?.mapNotNull {
+            QuickSearchItem.Query(
+               it.jsonObject["query"]?.jsonPrimitive?.content.orEmpty(),
+                false
+            )
+        }?.toList() ?: emptyList()
+    }
 
-    private val client by lazy { OkHttpClient() }
+    override suspend fun deleteQuickSearch(item: QuickSearchItem) {
+        TODO("Not yet implemented")
+    }
+
+    //<============= Login =============>
 
     override suspend fun getCurrentUser(): User {
         val user = api.makeUser()

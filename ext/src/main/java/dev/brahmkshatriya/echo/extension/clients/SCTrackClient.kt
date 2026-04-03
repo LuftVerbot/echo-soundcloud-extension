@@ -8,6 +8,7 @@ import dev.brahmkshatriya.echo.common.models.Streamable
 import dev.brahmkshatriya.echo.common.models.Streamable.Media.Companion.toMedia
 import dev.brahmkshatriya.echo.common.models.Track
 import dev.brahmkshatriya.echo.extension.SoundCloudApi
+import dev.brahmkshatriya.echo.extension.SoundCloudApi.Companion.client
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Request
 
@@ -22,7 +23,7 @@ class SCTrackClient(private val api: SoundCloudApi) {
         isDownload: Boolean
     ): Streamable.Media {
         val request = Request.Builder().url(streamable.id).addHeader("Authorization", "OAuth ${api.accessToken}").build()
-        val response = api.client.newCall(request).await()
+        val response = client.newCall(request).await()
         val body = response.body.string()
         val jsonObject = api.decodeJson(body)
         val url = jsonObject["url"]?.jsonPrimitive?.content.orEmpty()
@@ -33,7 +34,7 @@ class SCTrackClient(private val api: SoundCloudApi) {
         ).toMedia()
     }
 
-    suspend fun loadTrack(track: Track): Track {
+    fun loadTrack(track: Track): Track {
         return track
     }
 }
